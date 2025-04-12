@@ -3,29 +3,23 @@ import tensorflow as tf
 import numpy as np
 import cv2
 import os
-from tensorflow.keras.layers import Multiply, BatchNormalization, Lambda
-from tensorflow.keras.utils import get_custom_objects, custom_object_scope
+from tensorflow.keras.layers import Multiply, BatchNormalization
+from tensorflow.keras.utils import custom_object_scope
 
 st.title("EfficientNetB1 Model for Cancer Detection using Biopsy Images")
 st.write("Upload an image to detect cancer and visualize the heatmap.")
-
-# Display TensorFlow version
 st.sidebar.write(f"TensorFlow Version: {tf.__version__}")
 
-# Fix for TFOpLambda error
+# Load model safely without TFOpLambda or Lambda layers
 @st.cache_resource
 def load_model():
     try:
-        model_path = r'efficientnetb1_modelv2.h5'
+        model_path = 'efficientnetb1_modelv2.h5'
 
-        # Register fallback for TFOpLambda (used for tf.math.multiply and others)
-        get_custom_objects()['TFOpLambda'] = Lambda(lambda x: x)
-
-        # Load model within a custom object scope
+        # Define known custom layers (excluding Lambda/TFOpLambda)
         custom_objects = {
             'Multiply': Multiply,
             'BatchNormalization': BatchNormalization,
-            'TFOpLambda': Lambda(lambda x: x),
         }
 
         with custom_object_scope(custom_objects):
@@ -38,15 +32,15 @@ def load_model():
 
 loaded_model = load_model()
 
-# Function to predict and generate heatmap
+# Prediction and heatmap function
 def predict_image_with_heatmap(img):
     if loaded_model is None:
         return None, "Model not loaded"
     
-    # Resize and preprocess
+    # Preprocess image
     img_copy = img.copy()
     img_3d = cv2.resize(img_copy, (256, 256))
-    img_3d = np.array(img_3d).reshape(-1, 256, 256, 3)
+    img_3d = np.array(img_3d).reshape(-1, 256, 256, 3).astype("float32") / 255.0
     
     # Predict
     prediction = loaded_model.predict(img_3d)[0]
@@ -58,7 +52,7 @@ def predict_image_with_heatmap(img):
         confidence_percentage = prediction[predicted_class_index] * 100
         
         if confidence_percentage > 99.96:
-            # Grad-CAM-like heatmap
+            # Grad-CAM Heatmap
             last_conv_layer = loaded_model.get_layer("top_activation")
             grad_model = tf.keras.models.Model(
                 [loaded_model.input], [last_conv_layer.output, loaded_model.output]
@@ -72,23 +66,23 @@ def predict_image_with_heatmap(img):
             pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
             conv_outputs = conv_outputs[0]
             heatmap = tf.reduce_mean(tf.multiply(pooled_grads, conv_outputs), axis=-1)
-            heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+            heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap + 1e-10)
             heatmap = heatmap.numpy()
             
-            # Apply heatmap
+            # Resize and color the heatmap
             heatmap = cv2.resize(heatmap, (img_copy.shape[1], img_copy.shape[0]))
             heatmap = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
-            heatmap = cv2.addWeighted(heatmap, 0.5, img_copy, 0.5, 0)
-            heatmap_rgb = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+            overlay = cv2.addWeighted(heatmap, 0.5, img_copy, 0.5, 0)
+            overlay_rgb = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
             
-            return heatmap_rgb, f"Predicted: {predicted_class} (Confidence: {confidence_percentage:.2f}%)"
+            return overlay_rgb, f"Predicted: {predicted_class} (Confidence: {confidence_percentage:.2f}%)"
         else:
-            return None, "Wrong Image"
+            return None, "Wrong Image (Confidence too low)"
     else:
-        return None, "Wrong Image"
+        return None, "Prediction Error"
 
-# Upload and process image
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"], key="file_uploader")
+# Upload and analyze image
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
