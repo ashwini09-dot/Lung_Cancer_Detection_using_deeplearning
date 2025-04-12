@@ -16,7 +16,7 @@ st.sidebar.write(f"TensorFlow Version: {tf.__version__}")
 @st.cache_resource
 def load_model():
     try:
-        model_path = r'D:\major project\efficientnetb1_modelv2.h5'
+        model_path = r'efficientnetb1_modelv2.h5'
 
         # Register fallback for TFOpLambda (used for tf.math.multiply and others)
         get_custom_objects()['TFOpLambda'] = Lambda(lambda x: x)
