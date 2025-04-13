@@ -14,7 +14,7 @@ st.sidebar.write(f"TensorFlow Version: {tf.__version__}")
 @st.cache_resource
 def load_model():
     try:
-        model_path = 'efficientnetb1_lung_best.keras'
+        model_path = 'efficientnetb1_model.keras'
 
         # Define known custom layers (excluding Lambda/TFOpLambda)
         custom_objects = {
